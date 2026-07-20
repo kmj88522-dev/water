@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>🚒 소방용수 통합관제 v70</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+    * { box-sizing: border-box; }
+    body { margin:0; padding:0; font-family:'Malgun Gothic', sans-serif; height:100vh; display:flex; flex-direction:column; overflow:hidden; background-color: #f4f6f9;}
+    
+    #header { height:40px; background:#2c3e50; color:white; display:flex; align-items:center; padding:0 15px; border-bottom:3px solid #ff9f43; flex-shrink: 0; }
+    
+    #container { display:flex; flex:1; height:calc(100vh - 40px); position:relative; width: 100%; overflow: hidden; }
+    
+    #left-panel { width:240px; background:white; border-right:1px solid #ccc; display:flex; flex-direction:column; padding:10px; z-index:1000; flex-shrink: 0; gap: 8px;}
+    
+    #drop-zone { 
+        border: 2px dashed #bdc3c7; border-radius: 6px; background: #fafafa;
+        display: flex; flex-direction: column; justify-content: center; align-items: center;
+        text-align: center; color: #7f8c8d; cursor: pointer; transition: all 0.3s ease; padding: 15px 5px; min-height: 100px;
+    }
+    #drop-zone:hover, #drop-zone.dragover { background: #e0f7fa; border-color: #00bcd4; color: #00838f; }
+    #drop-zone .icon { font-size: 2rem; margin-bottom: 5px; }
+    #file-status { font-size: 0.85rem; font-weight: bold; line-height: 1.3; word-break: break-all;}
+    
+    #map-wrapper { flex:1; position: relative; z-index: 1; min-height: 250px; }
+    #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+    
+    #right-panel { width:45%; min-width:350px; background:white; border-left:1px solid #ccc; display:flex; flex-direction:column; z-index:1000; flex-shrink: 0; }
+    
+    .overlay { position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:3000; display:none; justify-content:center; align-items:center; }
+    .modal { background:white; width:95%; max-width:380px; padding:20px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,0.5); border-top:5px solid #2980b9; }
+    #overlay-list { display:grid; grid-template-columns:1fr 1fr; gap:8px; max-height:250px; overflow-y:auto; margin:15px 0; border:1px solid #eee; padding:10px; background:#f9f9f9;}
+    .mgr-label { cursor:pointer; display:flex; align-items:center; font-size:0.9rem; padding:6px; border-radius:4px; background:white; border:1px solid #ddd;}
+    .mgr-label:hover { background:#f0f0f0; }
+    
+    .btn-blue { width:100%; padding:8px; background:#2980b9; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; font-size:0.9rem;}
+    .btn-blue:hover { background:#1f6391; }
+    .btn-gray { width:100%; padding:8px; background:#95a5a6; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; font-size:0.9rem; margin-top:5px;}
+    .btn-green { width:100%; padding:10px; background:#27ae60; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; font-size:0.9rem;}
+    
+    .modal-info-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left; margin-bottom: 15px; }
+    .modal-info-table th { background: #f1f2f6; padding: 6px 8px; border: 1px solid #ddd; color: #333; width: 30%; white-space: nowrap; }
+    .modal-info-table td { padding: 6px 8px; border: 1px solid #ddd; color: #2c3e50; font-weight: bold; word-break: break-all;}
+    
+    .status-btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+    .status-select-btn { padding: 10px 5px; border:none; border-radius:5px; color:white; font-weight:bold; cursor:pointer; font-size:0.9rem; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+    .status-select-btn:active { transform: scale(0.95); }
+    
+    .badge-status { padding: 3px 0; border-radius: 3px; font-size: 0.7rem; font-weight: bold; color: white; cursor: pointer; border: none; width: 90%; margin: 0 auto; display: block; line-height: 1; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+    .status-none { background: #95a5a6; } 
+    .status-good { background: #27ae60; } 
+    .status-warn { background: #f39c12; } 
+    .status-fail { background: #e74c3c; } 
+
+    .info-table { width:100%; border-collapse:collapse; font-size:0.75rem; table-layout:fixed; }
+    .info-table th { background:#34495e; color:white; padding:6px 2px; position:sticky; top:0; z-index:10; white-space:nowrap; font-size: 0.75rem; position:relative; }
+    .info-table td { border-bottom:1px solid #ddd; padding: 4px 2px; text-align:center; word-break:keep-all; vertical-align:middle; line-height:1.1; overflow:hidden; text-overflow:ellipsis; }
+    .info-table tr:hover { filter: brightness(0.95); cursor:pointer; }
+    .selected-row { border-left:4px solid #e67e22; font-weight:bold; filter: brightness(0.9); }
+    .error-row { background:#ffebee !important; color:#c0392b; }
+    
+    .resizer { position: absolute; top: 0; right: 0; width: 6px; cursor: col-resize; user-select: none; height: 100%; z-index: 11; border-right: 2px solid #7f8c8d; }
+    .resizer:hover, .resizing { border-right: 3px solid #ff9f43; background-color: rgba(255, 159, 67, 0.2); }
+
+    .circle-marker { display:flex; justify-content:center; align-items:center; border-radius:50%; font-weight:900; font-family:'Arial Black', sans-serif; box-shadow:0 3px 6px rgba(0,0,0,0.4); transition:transform 0.2s; }
+    .circle-marker:hover { transform: scale(1.1); }
+    
+    #gps-btn {
+        position: absolute; bottom: 20px; right: 20px; z-index: 2000;
+        background: white; border: 2px solid #2980b9; color: #2980b9;
+        border-radius: 50px; padding: 10px 15px; font-weight: bold; font-size: 0.85rem;
+        cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); transition: all 0.3s ease;
+    }
+    #gps-btn.active { background: #e74c3c; color: white; border-color: #c0392b; }
+
+    #loading { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999; display:none; justify-content:center; align-items:center; color:white; flex-direction:column; font-size:1.2rem; }
+    .spinner { width:50px; height:50px; border:5px solid #f3f3f3; border-top:5px solid #e67e22; border-radius:50%; animation:spin 1s linear infinite; margin-bottom:15px; }
+    @keyframes spin { 0% { transform:rotate(0deg); } 100% { transform:rotate(360deg); } }
+
+    .btn-purple { width:100%; padding:8px; background:#8e44ad; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; font-size:0.9rem; margin-top:5px;}
+    .btn-purple:hover { background:#6f3381; }
+    .btn-orange { width:100%; padding:8px; background:#e67e22; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; font-size:0.9rem; margin-top:5px; }
+    .btn-orange:hover { background:#ca6f1e; }
+    .edit-p { cursor:pointer; padding:0 3px; font-size:0.85rem; }
+    .edit-p:hover { transform:scale(1.2); }
+
+    #search-results { max-height:140px; overflow-y:auto; border:1px solid #eee; margin:8px 0 4px 0; background:#f9f9f9; border-radius:4px; }
+    .search-item { padding:7px 8px; font-size:0.78rem; border-bottom:1px solid #eee; cursor:pointer; line-height:1.3; }
+    .search-item:hover { background:#eaf6fb; }
+    .search-item.picked { background:#d6eaf8; border-left:4px solid #2980b9; font-weight:bold; }
+
+    .opt-row { display:flex; align-items:center; gap:8px; margin:8px 0; font-size:0.82rem; color:#2c3e50; }
+    .opt-row input[type=text] { padding:6px; border:1px solid #ccc; border-radius:4px; font-size:0.82rem; }
+    .color-swatch { width:24px; height:24px; border-radius:50%; cursor:pointer; border:2px solid rgba(0,0,0,0.1); flex-shrink:0; }
+    .color-swatch.picked { border:3px solid #2c3e50; transform:scale(1.12); }
+    .shape-btn { width:36px; height:36px; display:flex; justify-content:center; align-items:center; background:#f1f2f6; border:2px solid #ddd; border-radius:6px; cursor:pointer; flex-shrink:0; }
+    .shape-btn.picked { border-color:#8e44ad; background:#f4ecf7; }
+
+    .custom-marker { display:flex; justify-content:center; align-items:center; font-weight:900; font-family:'Arial Black', sans-serif; color:white; box-shadow:0 3px 6px rgba(0,0,0,0.4); width:26px; height:26px; font-size:11px; border:2px solid white; }
+    .cshape-circle { border-radius:50%; }
+    .cshape-square { border-radius:5px; }
+    .cshape-diamond { transform:rotate(45deg); border-radius:5px; }
+    .cshape-diamond span { transform:rotate(-45deg); }
+    .cshape-pin { border-radius:50% 50% 50% 0; transform:rotate(-45deg); }
+    .cshape-pin span { transform:rotate(45deg); }
+    .cshape-star { clip-path:polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); border:none; width:32px; height:32px; box-shadow:none; }
+
+    #custom-list { max-height:110px; overflow-y:auto; margin:8px 0; border-top:1px dashed #ccc; padding-top:6px; }
+    .custom-item { display:flex; align-items:center; gap:6px; font-size:0.78rem; padding:4px 2px; border-bottom:1px solid #f0f0f0; }
+    .custom-item .nm { flex:1; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#2c3e50; }
+    .custom-item .nm:hover { color:#2980b9; text-decoration:underline; }
+    .mini-dot { width:14px; height:14px; font-size:0; border-width:1px; flex-shrink:0; box-shadow:none; }
+    .del-x { color:#e74c3c; cursor:pointer; font-weight:bold; padding:0 5px; }
+
+    @media (max-width: 768px) {
+        #container { flex-direction: column; overflow: hidden; height: calc(100vh - 40px); }
+        #left-panel { flex-direction: row; width: 100%; height: auto; padding: 5px; border-right: none; border-bottom: 2px solid #2980b9; gap: 5px; align-items: center;}
+        #drop-zone { flex: 1; padding: 5px; min-height: 50px; flex-direction: row; gap: 10px; margin: 0; }
+        #drop-zone .icon { font-size: 1.5rem; margin: 0; }
+        #file-status { font-size: 0.8rem; text-align: left; }
+        .action-btns { display: flex; flex-direction: column; gap: 3px; width: 120px; }
+        .action-btns button { padding: 5px; font-size: 0.75rem; margin: 0; }
+        #map-wrapper { flex: 1; min-height: 40vh; width: 100%; }
+        #right-panel { height: 35vh; width: 100%; border-left: none; border-top: 2px solid #34495e; }
+    }
+</style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div><div id="loading-msg">처리 중...</div></div>
+
+<div id="manager-overlay" class="overlay">
+    <div class="modal">
+        <h3 style="margin-top:0; color:#2c3e50;">👤 담당자 선택 (최대 3명)</h3>
+        <p style="font-size:0.8rem; color:#7f8c8d; margin-top:-10px;">지도에 표시할 인원을 선택하세요.</p>
+        <div id="overlay-list"></div>
+        <div style="display:flex; flex-direction:column; gap:5px;">
+            <button class="btn-blue" onclick="confirmManager()">✅ 확인</button>
+            <div style="display:flex; gap:5px;">
+                <button class="btn-gray" style="flex:1; background:#7f8c8d;" onclick="resetManagerSelection()">🔄 선택 초기화</button>
+                <button class="btn-gray" style="flex:1;" onclick="document.getElementById('manager-overlay').style.display='none'">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="status-overlay" class="overlay">
+    <div class="modal">
+        <h3 id="modal-shortNum" style="margin-top:0; color:#2c3e50; border-bottom: 2px solid #ff9f43; padding-bottom: 5px;">📋 용수 상세정보</h3>
+        <table class="modal-info-table">
+            <tr><th>담당자</th><td id="modal-mgr"></td></tr>
+            <tr><th>도로명</th><td id="modal-road"></td></tr>
+            <tr><th>지번</th><td id="modal-jibun"></td></tr>
+            <tr><th>상세위치</th><td id="modal-detail"></td></tr>
+            <tr><th>기타시설</th><td>표지: <span id="modal-sign"></span> / 제수: <span id="modal-valve"></span> / 보호: <span id="modal-guard"></span></td></tr>
+        </table>
+
+        <div class="status-btn-grid">
+            <button class="status-select-btn" style="background:#27ae60;" onclick="saveStatus('양호')">🟢 양호</button>
+            <button class="status-select-btn" style="background:#f39c12;" onclick="saveStatus('불량')">🟠 불량</button>
+            <button class="status-select-btn" style="background:#e74c3c;" onclick="saveStatus('고장')">🔴 고장</button>
+            <button class="status-select-btn" style="background:#95a5a6;" onclick="saveStatus('미점검')">⚪ 초기화</button>
+        </div>
+        <button class="btn-gray" style="margin-top:5px; width: 100%;" onclick="closeStatusModal()">닫기</button>
+    </div>
+</div>
+
+<div id="loc-overlay" class="overlay">
+    <div class="modal" style="border-top-color:#8e44ad; max-height:92vh; overflow-y:auto;">
+        <h3 style="margin-top:0; color:#2c3e50;">📍 위치 추가</h3>
+        <div style="display:flex; gap:5px;">
+            <input type="text" id="addr-input" placeholder="주소 또는 위도,경도" style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px; font-size:0.85rem;">
+            <button class="btn-blue" style="width:64px;" onclick="searchAddress()">검색</button>
+        </div>
+        <div id="search-results"><div style="padding:10px; font-size:0.75rem; color:#95a5a6;">도로명주소가 가장 잘 검색됩니다.<br>좌표 직접 입력 예) 34.9861, 126.4742</div></div>
+
+        <div class="opt-row"><span style="width:36px; flex-shrink:0;">이름</span><input type="text" id="loc-name" placeholder="예: ○○요양원" style="flex:1;"></div>
+        <div class="opt-row"><span style="width:36px; flex-shrink:0;">라벨</span><input type="text" id="loc-label" maxlength="3" placeholder="1~3자" style="width:80px;"><span style="font-size:0.72rem; color:#95a5a6;">마커 안에 표시될 글자</span></div>
+        <div class="opt-row"><span style="width:36px; flex-shrink:0;">색상</span><div id="color-list" style="display:flex; gap:6px; flex-wrap:wrap;"></div><input type="color" id="loc-color-free" value="#8e44ad" title="직접 선택" style="width:32px; height:28px; border:none; background:none; cursor:pointer; padding:0;"></div>
+        <div class="opt-row"><span style="width:36px; flex-shrink:0;">모양</span><div id="shape-list" style="display:flex; gap:6px;"></div></div>
+
+        <div id="edit-banner" style="display:none; align-items:center; justify-content:space-between; background:#f4ecf7; border:1px solid #8e44ad; border-radius:4px; padding:6px 8px; margin-bottom:6px; font-size:0.78rem; color:#6f3381;">
+            <span>✏️ <b id="edit-banner-name"></b> 수정 중</span>
+            <span style="cursor:pointer; color:#e74c3c; font-weight:bold;" onclick="cancelEditState()">수정 취소</span>
+        </div>
+        <button class="btn-green" style="width:100%;" id="add-loc-btn" onclick="addCustomMarker()">➕ 지도에 추가</button>
+        <div id="custom-list"></div>
+        <button class="btn-gray" onclick="closeLocModal()">닫기</button>
+    </div>
+</div>
+
+<div id="header">
+    <h3 style="margin:0; font-size:1.1rem;">🚒 소방용수 통합관제 <span style="font-size:0.8rem; font-weight:normal; color:#bdc3c7;">v70</span></h3>
+</div>
+
+<div id="container">
+    <div id="left-panel">
+        <label id="drop-zone" for="excelFile">
+            <div class="icon">📂</div>
+            <div id="file-status">엑셀 또는 세이브(.json)<br>파일을 드래그하세요</div>
+            <input type="file" id="excelFile" accept=".xlsx,.xlsb,.xlsm,.json" style="display:none;" />
+        </label>
+        <div class="action-btns">
+            <button class="btn-blue" onclick="saveWork()" style="padding:10px;">🗂️ 세이브 저장</button>
+            <button class="btn-orange" onclick="sendSaveByMail()" style="margin-top:0;">📧 세이브 메일전송</button>
+            <button class="btn-green" onclick="exportExcel()">💾 엑셀 저장 (연동용)</button>
+            <button class="btn-purple" onclick="openLocModal()">📍 위치 추가</button>
+            <button class="btn-gray" onclick="resetWork()">🔄 작업 초기화</button>
+        </div>
+    </div>
+
+    <div id="map-wrapper">
+        <div id="map"></div>
+        <button id="gps-btn" onclick="toggleGPS()">🎯 내 위치 켜기</button>
+    </div>
+
+    <div id="right-panel">
+        <div style="padding:6px 10px; background:#34495e; color:white; font-size:0.85rem; font-weight:bold; display:flex; justify-content:space-between; align-items:center;">
+            <span>📋 용수 목록</span>
+            <span id="count-badge" style="background:#e67e22; padding:2px 8px; border-radius:12px; font-size:0.75rem;">0건</span>
+        </div>
+        <div style="overflow:auto; flex:1;">
+            <table class="info-table">
+                <thead>
+                    <tr>
+                        <th style="width:8%;">번호</th>
+                        <th style="width:12%;">상태</th>
+                        <th style="width:10%;">담당</th>
+                        <th style="width:18%;">도로명</th>
+                        <th style="width:14%;">지번</th>
+                        <th style="width:22%;">상세</th>
+                        <th style="width:6%;">표지</th>
+                        <th style="width:5%;">제수</th>
+                        <th style="width:5%;">보호</th>
+                    </tr>
+                </thead>
+                <tbody id="listBody"><tr><td colspan="9" style="padding:30px; color:#aaa; text-align:center;">엑셀 파일을 로드해주세요.</td></tr></tbody>
+            </table>
+        </div>
+        <div id="custom-panel" style="display:none; flex-shrink:0; border-top:2px solid #8e44ad;">
+            <div style="padding:4px 10px; background:#8e44ad; color:white; font-size:0.8rem; font-weight:bold; display:flex; justify-content:space-between; align-items:center;">
+                <span>📍 추가 위치</span>
+                <span id="custom-count" style="background:rgba(255,255,255,0.25); padding:1px 8px; border-radius:10px; font-size:0.72rem;">0곳</span>
+            </div>
+            <div id="custom-panel-list" style="max-height:110px; overflow-y:auto; padding:2px 8px;"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    window.addEventListener("dragover", e => e.preventDefault(), false);
+    window.addEventListener("drop", e => e.preventDefault(), false);
+
+    const ACTIVE_COLORS = ['#ff4757', '#2ed573', '#1e90ff'];
+
+    let map, markers=[], loadedRows=[], currentEditItem=null;
+
+    map = L.map('map', { zoomControl: false }).setView([34.99, 126.47], 11);
+    L.control.zoom({ position: 'bottomleft' }).addTo(map);
+
+    const vworldBase = L.tileLayer('https://xdworld.vworld.kr/2d/Base/service/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© Vworld' });
+    const vworldSatellite = L.tileLayer('https://xdworld.vworld.kr/2d/Satellite/service/{z}/{x}/{y}.jpeg', { maxZoom: 19, attribution: '© Vworld' });
+    const vworldHybrid = L.tileLayer('https://xdworld.vworld.kr/2d/Hybrid/service/{z}/{x}/{y}.png', { maxZoom: 19 });
+    const osmBase = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OSM' });
+
+    vworldBase.addTo(map);
+    const hybridGroup = L.layerGroup([vworldSatellite, vworldHybrid]);
+    const baseMaps = { "🗺️ 일반 지도": vworldBase, "🛰️ 위성+지명": hybridGroup, "⚡ 예비용": osmBase };
+    L.control.layers(baseMaps).addTo(map);
+
+    function getLightColor(hexColor) {
+        if(!hexColor || hexColor.length < 7) return 'rgba(255, 255, 255, 0)';
+        let r = parseInt(hexColor.slice(1, 3), 16), g = parseInt(hexColor.slice(3, 5), 16), b = parseInt(hexColor.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, 0.12)`;
+    }
+
+    function createMarkerIcon(shortNum, mgrColor, status) {
+        let textColor = '#ffffff';
+        if (status === '양호') textColor = '#2ecc71';
+        if (status === '불량') textColor = '#f1c40f';
+        if (status === '고장') textColor = '#ff4757';
+        return L.divIcon({
+            className:'',
+            html: `<div class="circle-marker" style="background:#1e272e; color:${textColor}; border:3px solid ${mgrColor}; width:26px; height:26px; font-size:11px; letter-spacing:-0.5px;">${shortNum}</div>`,
+            iconSize:[26,26], iconAnchor:[13,13]
+        });
+    }
+
+    // ===== 주소 정리: 도/시군 접두어 자동 제거 (지역명 하드코딩 제거) =====
+    function cleanAddr(s) {
+        let t = (s || '').toString().trim();
+        t = t.replace(/^전라남도\s*|^전남\s*/, '');
+        t = t.replace(/^[가-힣]{1,5}[군시]\s+/, '');
+        return t.trim();
+    }
+
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('excelFile');
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); }));
+    dropZone.addEventListener('dragover', () => dropZone.classList.add('dragover'));
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', e => {
+        dropZone.classList.remove('dragover');
+        if(e.dataTransfer && e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', e => { if(e.target.files.length > 0) handleFile(e.target.files[0]); });
+
+    let currentFileName = '', currentTitle = '';
+
+    async function handleFile(file) {
+        if(!file) return;
+        if(/\.json$/i.test(file.name)) return loadSaveFile(file);   // 세이브 파일 분기
+        document.getElementById('loading').style.display = 'flex';
+        try {
+            currentFileName = file.name;
+            const buffer = await file.arrayBuffer();
+            // SheetJS: xlsx / xlsb / xlsm 모두 판독
+            const wb = XLSX.read(buffer, { type: 'array' });
+
+            // 시트 자동 선택: '세부현황' 포함 시트 > '소화전' 포함 시트 > 첫 시트
+            const sheetName =
+                wb.SheetNames.find(n => n.includes('세부현황')) ||
+                wb.SheetNames.find(n => n.includes('소화전')) ||
+                wb.SheetNames[0];
+            const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: null, raw: true });
+
+            // ===== 헤더 행 자동 탐지: '위도'와 '경도'가 함께 있는 행 =====
+            let headerIdx = -1, H = null;
+            for(let i = 0; i < Math.min(aoa.length, 20); i++) {
+                const row = (aoa[i] || []).map(v => v == null ? '' : String(v));
+                if(row.some(v => v.includes('위도')) && row.some(v => v.includes('경도'))) { headerIdx = i; H = row; break; }
+            }
+            if(headerIdx < 0) throw new Error("헤더 행('위도'/'경도' 포함)을 찾지 못했습니다. 시트 구성을 확인하세요.");
+
+            const findCol = (...keys) => {
+                const idx = H.findIndex(h => keys.every(k => h.includes(k)));
+                return idx >= 0 ? idx : null;
+            };
+
+            // ===== 열 자동 매핑 (헤더 텍스트 기반 — 양식이 바뀌어도 대응) =====
+            const IDX = {
+                num:    findCol('시설번호') ?? findCol('수리번호') ?? findCol('연번'),
+                road:   findCol('도로명'),
+                jibun:  findCol('지번'),
+                detail: findCol('상세위치'),
+                lat:    findCol('위도'),
+                lng:    findCol('경도'),
+                sign:   findCol('표지판', '단면') ?? findCol('표지판'),
+                valve:  findCol('제수변'),
+                guard:  findCol('보호틀'),
+            };
+            // 담당자: '현담당자' 우선, 없으면 '전담당자'를 제외한 마지막 '담당자' 열(분기별 양식 대응)
+            let mgrIdx = H.findIndex(h => h.includes('현담당자'));
+            if(mgrIdx < 0) {
+                for(let i = H.length - 1; i >= 0; i--) {
+                    if(H[i].includes('담당자') && !H[i].includes('전담당자')) { mgrIdx = i; break; }
+                }
+            }
+            IDX.mgr = mgrIdx >= 0 ? mgrIdx : null;
+
+            if(IDX.lat === null || IDX.lng === null || IDX.num === null || IDX.mgr === null) {
+                const missing = Object.entries(IDX).filter(([k, v]) => v === null).map(([k]) => k);
+                throw new Error("필수 열을 찾지 못했습니다: " + missing.join(', '));
+            }
+
+            const get = (row, i) => (i === null || row[i] == null) ? '' : String(row[i]).trim();
+
+            // ===== 데이터 행 파싱 (반복 헤더 행·빈 행 자동 스킵) =====
+            loadedRows = [];
+            for(let i = headerIdx + 1; i < aoa.length; i++) {
+                const row = aoa[i] || [];
+                const numVal = get(row, IDX.num);
+                if(!numVal) continue;                                    // 빈 행
+                if(numVal.includes('번호') || numVal === '연번') continue; // 반복 헤더 행
+
+                loadedRows.push({
+                    num: i + 1,
+                    fullNum: numVal,
+                    shortNum: numVal.split('-').pop().replace('호',''),
+                    road:   cleanAddr(get(row, IDX.road)),
+                    jibun:  cleanAddr(get(row, IDX.jibun)),
+                    detail: get(row, IDX.detail),
+                    sign:   get(row, IDX.sign).replace(/입상식/g, '').trim(),
+                    valve:  get(row, IDX.valve),
+                    guard:  get(row, IDX.guard),
+                    mgr:    get(row, IDX.mgr),
+                    lat:    parseFloat(row[IDX.lat]),
+                    lng:    parseFloat(row[IDX.lng]),
+                    status: '미점검', mgrColor: '#333', marker: null
+                });
+            }
+            if(loadedRows.length === 0) throw new Error("데이터 행을 찾지 못했습니다.");
+
+            document.getElementById('file-status').innerHTML =
+                `<span style="color:#2980b9;">${file.name}</span><br><span style="font-size:0.7rem; color:#7f8c8d;">[${sheetName}] ${loadedRows.length}건</span>`;
+            showManagerOverlay();
+        } catch(err) {
+            alert("엑셀 파일을 읽는 중 오류가 발생했습니다.\n" + err.message);
+        }
+        finally { document.getElementById('loading').style.display = 'none'; fileInput.value = ''; }
+    }
+
+    function buildManagerList() {
+        const mgrSet = new Set();
+        loadedRows.forEach(item => { if(item.mgr) mgrSet.add(item.mgr); });
+        const list = document.getElementById('overlay-list');
+        list.innerHTML = "";
+        [...mgrSet].sort().forEach((mgr) => {
+            const div = document.createElement('div');
+            div.innerHTML = `<label class="mgr-label"><input type="checkbox" class="mgr-check" value="${mgr}" style="margin-right:8px;">${mgr}</label>`;
+            list.appendChild(div);
+        });
+    }
+
+    function showManagerOverlay() {
+        buildManagerList();
+        document.getElementById('manager-overlay').style.display = 'flex';
+    }
+
+    function resetManagerSelection() {
+        document.querySelectorAll('.mgr-check').forEach(cb => cb.checked = false);
+    }
+
+    function confirmManager() {
+        const checks = document.querySelectorAll('.mgr-check:checked');
+        if(checks.length === 0) return alert("최소 1명의 담당자를 선택하세요.");
+        if(checks.length > 3) return alert("담당자는 최대 3명까지만 선택할 수 있습니다.");
+
+        const targets = Array.from(checks).map((c, idx) => ({ name: c.value, color: ACTIVE_COLORS[idx] || '#333' }));
+        document.getElementById('manager-overlay').style.display = 'none';
+
+        setTimeout(() => map.invalidateSize(), 300);
+        renderMapAndTable(targets);
+    }
+
+    function renderMapAndTable(targets) {
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
+        const tbody = document.getElementById('listBody');
+        tbody.innerHTML = "";
+        const bounds = [];
+        const targetNames = targets.map(t => t.name);
+        let validCount = 0;
+
+        loadedRows.forEach(item => {
+            if(targetNames.includes(item.mgr)) {
+                const matchedTarget = targets.find(t => t.name === item.mgr);
+                item.mgrColor = matchedTarget ? matchedTarget.color : '#333';
+
+                const isValidLocation = !isNaN(item.lat) && !isNaN(item.lng) && item.lat > 30 && item.lng > 120;
+
+                if(isValidLocation) {
+                    const icon = createMarkerIcon(item.shortNum, item.mgrColor, item.status);
+                    const marker = L.marker([item.lat, item.lng], { icon: icon }).addTo(map);
+                    marker.on('click', () => {
+                        highlightRow(item.num);
+                        openStatusModal(item.num, item.shortNum);
+                    });
+                    item.marker = marker;
+                    markers.push(marker);
+                    bounds.push([item.lat, item.lng]);
+                    validCount++;
+                }
+
+                let statusClass = 'status-none';
+                if(item.status === '양호') statusClass = 'status-good';
+                if(item.status === '불량') statusClass = 'status-warn';
+                if(item.status === '고장') statusClass = 'status-fail';
+
+                const tr = document.createElement('tr');
+                tr.id = `row-${item.num}`;
+                if(isValidLocation) tr.style.backgroundColor = getLightColor(item.mgrColor);
+                else tr.classList.add('error-row');
+
+                tr.innerHTML = `
+                    <td><b>${item.shortNum}</b></td>
+                    <td onclick="event.stopPropagation()">
+                        <button class="badge-status ${statusClass}" onclick="openStatusModal(${item.num}, '${item.shortNum}', event)">${item.status}</button>
+                    </td>
+                    <td style="color:${item.mgrColor}; font-weight:bold;">${item.mgr}</td>
+                    <td>${item.road}</td><td>${item.jibun}</td><td style="font-size:0.7rem;">${item.detail}</td>
+                    <td>${item.sign}</td><td>${item.valve}</td><td>${item.guard}</td>
+                `;
+
+                tr.onclick = () => {
+                    if(isValidLocation) map.setView([item.lat, item.lng], 18);
+                    highlightRow(item.num);
+                };
+                tbody.appendChild(tr);
+            }
+        });
+
+        document.getElementById('count-badge').innerText = `${validCount}건 표시`;
+        if(bounds.length > 0) map.fitBounds(bounds);
+
+        initResizableColumns();
+    }
+
+    function highlightRow(id) {
+        document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
+        const row = document.getElementById(`row-${id}`);
+        if(row) { row.classList.add('selected-row'); row.scrollIntoView({behavior:'smooth', block:'nearest'}); }
+    }
+
+    function openStatusModal(rowNum, shortNum, e = null) {
+        if(e && typeof e.stopPropagation === 'function') e.stopPropagation();
+        currentEditItem = loadedRows.find(item => item.num === rowNum);
+        if(!currentEditItem) return;
+
+        document.getElementById('modal-shortNum').innerText = `[${shortNum}번 용수] 정보 및 점검`;
+        document.getElementById('modal-mgr').innerText = currentEditItem.mgr || '-';
+        document.getElementById('modal-road').innerText = currentEditItem.road || '-';
+        document.getElementById('modal-jibun').innerText = currentEditItem.jibun || '-';
+        document.getElementById('modal-detail').innerText = currentEditItem.detail || '-';
+        document.getElementById('modal-sign').innerText = currentEditItem.sign || '-';
+        document.getElementById('modal-valve').innerText = currentEditItem.valve || '-';
+        document.getElementById('modal-guard').innerText = currentEditItem.guard || '-';
+
+        document.getElementById('status-overlay').style.display = 'flex';
+    }
+
+    function closeStatusModal() {
+        document.getElementById('status-overlay').style.display = 'none';
+        currentEditItem = null;
+    }
+
+    function saveStatus(newStatus) {
+        if(currentEditItem) {
+            currentEditItem.status = newStatus;
+
+            const rowBtn = document.querySelector(`#row-${currentEditItem.num} .badge-status`);
+            if(rowBtn) {
+                rowBtn.innerText = newStatus;
+                rowBtn.className = 'badge-status';
+                if(newStatus === '양호') rowBtn.classList.add('status-good');
+                else if(newStatus === '불량') rowBtn.classList.add('status-warn');
+                else if(newStatus === '고장') rowBtn.classList.add('status-fail');
+                else rowBtn.classList.add('status-none');
+            }
+
+            if(currentEditItem.marker) {
+                const newIcon = createMarkerIcon(currentEditItem.shortNum, currentEditItem.mgrColor, newStatus);
+                currentEditItem.marker.setIcon(newIcon);
+            }
+
+            closeStatusModal();
+        }
+    }
+
+    function resetWork() {
+        if(!confirm("진행 중인 모든 점검 내용과 목록이 초기화됩니다. 계속하시겠습니까?")) return;
+        loadedRows = []; currentEditItem = null;
+        markers.forEach(m => map.removeLayer(m)); markers = [];
+        document.getElementById('listBody').innerHTML = '<tr><td colspan="9" style="padding:40px; color:#aaa; text-align:center;">엑셀 파일을 로드해주세요.</td></tr>';
+        document.getElementById('file-status').innerHTML = '파일을 클릭하거나<br>드래그하세요';
+        document.getElementById('count-badge').innerText = '0건';
+        document.getElementById('excelFile').value = '';
+        map.setView([34.99, 126.47], 11);
+    }
+
+    async function exportExcel() {
+        if(loadedRows.length === 0) return alert("내보낼 데이터가 없습니다. 파일을 먼저 로드하세요.");
+        document.getElementById('loading-msg').innerText = "엑셀 생성 중...";
+        document.getElementById('loading').style.display = 'flex';
+
+        try {
+            const newWb = new ExcelJS.Workbook();
+            const newWs = newWb.addWorksheet('점검결과');
+
+            newWs.addRow(['연번', '번호', '점검상태', '담당자', '도로명', '지번', '상세위치', '표지', '제수', '보호']);
+            newWs.getRow(1).font = { bold: true };
+            newWs.getRow(1).alignment = { horizontal: 'center' };
+
+            const targetNames = Array.from(document.querySelectorAll('.mgr-check:checked')).map(c => c.value);
+
+            let count = 1;
+            loadedRows.forEach(item => {
+                if(targetNames.includes(item.mgr) || targetNames.length === 0) {
+                    newWs.addRow([count++, item.fullNum, item.status, item.mgr, item.road, item.jibun, item.detail, item.sign, item.valve, item.guard]);
+                }
+            });
+
+            newWs.columns = [
+                { width: 6 }, { width: 15 }, { width: 12 }, { width: 10 },
+                { width: 25 }, { width: 25 }, { width: 30 }, { width: 10 }, { width: 10 }, { width: 10 }
+            ];
+
+            const buffer = await newWb.xlsx.writeBuffer();
+            const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+
+            const today = new Date().toISOString().slice(2,10).replace(/-/g,'');
+            link.download = `소방용수_점검결과_${today}.xlsx`;
+            link.click();
+
+            alert("점검결과 엑셀 파일이 다운로드되었습니다.");
+        } catch(err) {
+            alert("엑셀 생성 중 오류: " + err.message);
+        } finally {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('loading-msg').innerText = "처리 중...";
+        }
+    }
+
+    let gpsWatchId = null; let userMarker = null; let userPathLine = null; let pathCoordinates = [];
+    function toggleGPS() {
+        const btn = document.getElementById('gps-btn');
+        if (gpsWatchId) {
+            navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null;
+            btn.innerText = "🎯 내 위치 켜기"; btn.classList.remove('active'); return;
+        }
+        if (!navigator.geolocation) return alert("위치 서비스를 지원하지 않습니다.");
+
+        btn.innerText = "⏹️ 기록 중... (끄기)"; btn.classList.add('active');
+        gpsWatchId = navigator.geolocation.watchPosition(
+            (position) => {
+                const latlng = [position.coords.latitude, position.coords.longitude];
+                if (!userMarker) {
+                    userMarker = L.circleMarker(latlng, { color: '#3498db', radius: 8, fillOpacity: 1, border: '2px solid white' }).addTo(map);
+                    userPathLine = L.polyline([], { color: '#3498db', weight: 4, opacity: 0.7, dashArray: '5, 10' }).addTo(map);
+                    map.setView(latlng, 17);
+                } else { userMarker.setLatLng(latlng); }
+                pathCoordinates.push(latlng); userPathLine.setLatLngs(pathCoordinates);
+            },
+            (error) => {
+                let msg;
+                if (error.code === 1) {   // PERMISSION_DENIED
+                    if (location.protocol !== 'https:' && location.protocol !== 'http:') {
+                        msg = "이 브라우저는 '파일로 직접 연' 페이지에서 GPS를 차단합니다.\n\n해결 방법:\n① Firefox 브라우저로 이 파일을 열면 위치 권한을 물어봅니다.\n② 또는 앱을 https 주소로 호스팅해서 접속하면 정상 작동합니다.\n\n※ 내 위치 표시 외의 모든 기능(지도·점검·세이브)은 지금처럼 사용할 수 있습니다.";
+                    } else {
+                        msg = "위치 권한이 거부되었습니다.\n브라우저 설정 > 사이트 설정 > 위치에서 이 사이트를 허용해주세요.";
+                    }
+                } else if (error.code === 2) {   // POSITION_UNAVAILABLE
+                    msg = "위치를 확인할 수 없습니다.\n휴대폰의 위치(GPS) 기능이 켜져 있는지, 실외인지 확인해주세요.";
+                } else if (error.code === 3) {   // TIMEOUT
+                    msg = "위치 확인 시간이 초과되었습니다.\n하늘이 보이는 실외에서 다시 시도해주세요.";
+                } else {
+                    msg = "알 수 없는 위치 오류입니다. (" + (error.message || '') + ")";
+                }
+                alert(msg);
+                toggleGPS();
+            },
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+        );
+    }
+
+    function initResizableColumns() {
+        const table = document.querySelector('.info-table');
+        if(!table) return;
+        const cols = table.querySelectorAll('th');
+        table.querySelectorAll('.resizer').forEach(e => e.remove());
+        table.classList.remove('resizing-active');
+
+        [].forEach.call(cols, function (col) {
+            const resizer = document.createElement('div');
+            resizer.classList.add('resizer');
+            col.appendChild(resizer);
+            let x = 0, w = 0, tableStartWidth = 0;
+
+            const mouseDownHandler = function (e) {
+                x = e.clientX; w = col.offsetWidth; tableStartWidth = table.offsetWidth;
+                if(!table.classList.contains('resizing-active')) {
+                    table.classList.add('resizing-active');
+                    cols.forEach(c => { c.style.width = `${c.offsetWidth}px`; });
+                    table.style.width = `${table.offsetWidth}px`;
+                }
+                document.addEventListener('mousemove', mouseMoveHandler);
+                document.addEventListener('mouseup', mouseUpHandler);
+                resizer.classList.add('resizing');
+                document.body.style.userSelect = 'none';
+            };
+            const mouseMoveHandler = function (e) {
+                const dx = e.clientX - x; col.style.width = `${w + dx}px`; table.style.width = `${tableStartWidth + dx}px`;
+            };
+            const mouseUpHandler = function () {
+                resizer.classList.remove('resizing');
+                document.removeEventListener('mousemove', mouseMoveHandler);
+                document.removeEventListener('mouseup', mouseUpHandler);
+                document.body.style.userSelect = '';
+            };
+            resizer.addEventListener('mousedown', mouseDownHandler);
+            resizer.addEventListener('touchstart', (e) => mouseDownHandler(e.touches[0]));
+        });
+    }
+    // ==================== 커스텀 위치 (v67) ====================
+    const PRESET_COLORS = ['#8e44ad', '#e67e22', '#16a085', '#c0392b', '#2c3e50', '#f39c12'];
+    const SHAPES = [
+        { id: 'circle',  title: '원' },
+        { id: 'square',  title: '사각' },
+        { id: 'diamond', title: '마름모' },
+        { id: 'pin',     title: '핀' },
+        { id: 'star',    title: '별' },
+    ];
+    let customMarkers = [];      // {id, name, label, color, shape, lat, lng, addr}
+    let customLayerMap = {};     // id -> Leaflet marker
+    let pickedResult = null, pickedColor = PRESET_COLORS[0], pickedShape = 'circle';
+
+    function openLocModal() {
+        renderColorList(); renderShapeList(); renderCustomList();
+        document.getElementById('loc-overlay').style.display = 'flex';
+    }
+    function closeLocModal() { document.getElementById('loc-overlay').style.display = 'none'; cancelEditState(); }
+
+    function renderColorList() {
+        const box = document.getElementById('color-list');
+        box.innerHTML = '';
+        PRESET_COLORS.forEach(c => {
+            const d = document.createElement('div');
+            d.className = 'color-swatch' + (c === pickedColor ? ' picked' : '');
+            d.style.background = c;
+            d.onclick = () => { pickedColor = c; renderColorList(); };
+            box.appendChild(d);
+        });
+    }
+    document.getElementById('loc-color-free').addEventListener('input', e => { pickedColor = e.target.value; renderColorList(); });
+
+    function renderShapeList() {
+        const box = document.getElementById('shape-list');
+        box.innerHTML = '';
+        SHAPES.forEach(s => {
+            const btn = document.createElement('div');
+            btn.className = 'shape-btn' + (s.id === pickedShape ? ' picked' : '');
+            btn.title = s.title;
+            btn.innerHTML = `<div class="custom-marker cshape-${s.id}" style="background:${pickedColor}; width:18px; height:18px; font-size:0;"></div>`;
+            btn.onclick = () => { pickedShape = s.id; renderShapeList(); };
+            box.appendChild(btn);
+        });
+    }
+
+    async function searchAddress() {
+        const q = document.getElementById('addr-input').value.trim();
+        if(!q) return alert('주소 또는 좌표를 입력하세요.');
+        const box = document.getElementById('search-results');
+
+        // 좌표 직접 입력 (위도, 경도)
+        const m = q.match(/^(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)$/);
+        if(m) {
+            renderSearchResults([{ display_name: `좌표 직접 입력 (${m[1]}, ${m[2]})`, lat: m[1], lon: m[2] }]);
+            return;
+        }
+
+        box.innerHTML = '<div style="padding:10px; font-size:0.8rem; color:#7f8c8d;">🔍 검색 중...</div>';
+        try {
+            const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&accept-language=ko&countrycodes=kr&q=${encodeURIComponent(q)}`;
+            const res = await fetch(url);
+            const arr = await res.json();
+            if(!arr.length) {
+                box.innerHTML = '<div style="padding:10px; font-size:0.78rem; color:#c0392b;">검색 결과가 없습니다.<br>도로명주소로 다시 시도하거나, 좌표(위도, 경도)를 직접 입력하세요.</div>';
+                return;
+            }
+            renderSearchResults(arr);
+        } catch(err) {
+            box.innerHTML = '<div style="padding:10px; font-size:0.78rem; color:#c0392b;">검색 서버에 연결할 수 없습니다.<br>좌표(위도, 경도)를 직접 입력해 추가할 수 있습니다.</div>';
+        }
+    }
+    document.getElementById('addr-input').addEventListener('keydown', e => { if(e.key === 'Enter') searchAddress(); });
+
+    function renderSearchResults(arr) {
+        const box = document.getElementById('search-results');
+        box.innerHTML = '';
+        pickedResult = null;
+        arr.forEach((r, i) => {
+            const d = document.createElement('div');
+            d.className = 'search-item';
+            d.textContent = r.display_name;
+            d.onclick = () => {
+                pickedResult = { lat: parseFloat(r.lat), lng: parseFloat(r.lon), addr: r.display_name };
+                document.querySelectorAll('.search-item').forEach(el => el.classList.remove('picked'));
+                d.classList.add('picked');
+                map.setView([pickedResult.lat, pickedResult.lng], 16);
+            };
+            box.appendChild(d);
+            if(arr.length === 1) d.click();   // 결과가 1건이면 자동 선택
+        });
+    }
+
+    function createCustomIcon(m) {
+        const anchor = (m.shape === 'pin') ? [13, 30] : [13, 13];
+        return L.divIcon({
+            className: '',
+            html: `<div class="custom-marker cshape-${m.shape}" style="background:${m.color};"><span>${m.label}</span></div>`,
+            iconSize: [26, 26], iconAnchor: anchor
+        });
+    }
+
+    function drawCustomMarker(m) {
+        const marker = L.marker([m.lat, m.lng], { icon: createCustomIcon(m), zIndexOffset: 500 }).addTo(map);
+        const pop = document.createElement('div');
+        pop.style.fontSize = '0.85rem';
+        const nm = document.createElement('b'); nm.textContent = m.name;
+        const ad = document.createElement('div'); ad.textContent = m.addr || ''; ad.style.cssText = 'font-size:0.72rem; color:#7f8c8d; margin:4px 0; max-width:200px;';
+        const del = document.createElement('button');
+        del.textContent = '🗑 삭제'; del.style.cssText = 'margin-top:4px; padding:4px 10px; background:#e74c3c; color:white; border:none; border-radius:4px; cursor:pointer; font-size:0.75rem;';
+        del.onclick = () => { if(confirm(`[${m.name}] 위치를 삭제할까요?`)) deleteCustomMarker(m.id); };
+        const ed = document.createElement('button');
+        ed.textContent = '✏️ 수정'; ed.style.cssText = 'margin:4px 6px 0 0; padding:4px 10px; background:#2980b9; color:white; border:none; border-radius:4px; cursor:pointer; font-size:0.75rem;';
+        ed.onclick = () => { marker.closePopup(); startEditMarker(m.id); };
+        pop.append(nm, ad, ed, del);
+        marker.bindPopup(pop);
+        customLayerMap[m.id] = marker;
+    }
+
+    function addCustomMarker() {
+        const nameInput = document.getElementById('loc-name').value.trim();
+        let label = document.getElementById('loc-label').value.trim();
+
+        if(editingId) {   // ===== 수정 모드 =====
+            const m = customMarkers.find(x => x.id === editingId);
+            if(!m) { cancelEditState(); return; }
+            if(nameInput) m.name = nameInput;
+            m.label = label || m.label || m.name.charAt(0);
+            m.color = pickedColor;
+            m.shape = pickedShape;
+            if(pickedResult) { m.lat = pickedResult.lat; m.lng = pickedResult.lng; m.addr = pickedResult.addr; }  // 새 검색을 했을 때만 위치 변경
+            if(customLayerMap[m.id]) { map.removeLayer(customLayerMap[m.id]); delete customLayerMap[m.id]; }
+            drawCustomMarker(m);
+            saveCustomMarkers();
+            renderCustomList();
+            map.setView([m.lat, m.lng], 16);
+            pickedResult = null;
+            cancelEditState();
+            return;
+        }
+
+        // ===== 추가 모드 =====
+        if(!pickedResult) return alert('먼저 주소를 검색하고 목록에서 위치를 선택하세요.');
+        const name = nameInput || '표시 위치';
+        if(!label) label = name.charAt(0);
+
+        const m = {
+            id: 'c' + Date.now(),
+            name: name, label: label, color: pickedColor, shape: pickedShape,
+            lat: pickedResult.lat, lng: pickedResult.lng, addr: pickedResult.addr
+        };
+        customMarkers.push(m);
+        drawCustomMarker(m);
+        saveCustomMarkers();
+        renderCustomList();
+        map.setView([m.lat, m.lng], 16);
+        document.getElementById('loc-name').value = '';
+        document.getElementById('loc-label').value = '';
+        pickedResult = null;
+    }
+
+    function deleteCustomMarker(id) {
+        const marker = customLayerMap[id];
+        if(marker) { map.removeLayer(marker); delete customLayerMap[id]; }
+        customMarkers = customMarkers.filter(m => m.id !== id);
+        saveCustomMarkers();
+        renderCustomList();
+    }
+
+    function makeCustomRow(m) {
+        const d = document.createElement('div');
+        d.className = 'custom-item';
+        const dot = document.createElement('div');
+        dot.className = `custom-marker cshape-${m.shape} mini-dot`;
+        dot.style.background = m.color;
+        const nm = document.createElement('span');
+        nm.className = 'nm'; nm.textContent = `${m.name} (${m.label})`;
+        nm.onclick = () => { map.setView([m.lat, m.lng], 17); customLayerMap[m.id] && customLayerMap[m.id].openPopup(); };
+        const ed = document.createElement('span');
+        ed.className = 'edit-p'; ed.textContent = '✏️'; ed.title = '수정';
+        ed.onclick = () => startEditMarker(m.id);
+        const del = document.createElement('span');
+        del.className = 'del-x'; del.textContent = '✕'; del.title = '삭제';
+        del.onclick = () => { if(confirm(`[${m.name}] 위치를 삭제할까요?`)) deleteCustomMarker(m.id); };
+        d.append(dot, nm, ed, del);
+        return d;
+    }
+
+    function renderCustomList() {
+        // ① 위치추가 모달 내 목록
+        const box = document.getElementById('custom-list');
+        box.innerHTML = '';
+        if(customMarkers.length === 0) box.innerHTML = '<div style="font-size:0.72rem; color:#bbb; text-align:center; padding:4px;">추가된 위치가 없습니다.</div>';
+        else customMarkers.forEach(m => box.appendChild(makeCustomRow(m)));
+
+        // ② 우측 패널(용수 목록 하단) 목록
+        const panel = document.getElementById('custom-panel');
+        const panelList = document.getElementById('custom-panel-list');
+        panelList.innerHTML = '';
+        if(customMarkers.length === 0) { panel.style.display = 'none'; return; }
+        panel.style.display = 'block';
+        document.getElementById('custom-count').innerText = customMarkers.length + '곳';
+        customMarkers.forEach(m => panelList.appendChild(makeCustomRow(m)));
+    }
+
+    // 저장/복원: 브라우저 localStorage 사용 (같은 PC·같은 브라우저에서 유지)
+    function saveCustomMarkers() {
+        try { localStorage.setItem('fw_custom_markers_v1', JSON.stringify(customMarkers)); } catch(e) {}
+    }
+    function loadCustomMarkers() {
+        try {
+            const raw = localStorage.getItem('fw_custom_markers_v1');
+            if(raw) { customMarkers = JSON.parse(raw); customMarkers.forEach(drawCustomMarker); }
+        } catch(e) { customMarkers = []; }
+    }
+    // ==================== 위치 수정 모드 (v69) ====================
+    let editingId = null;
+
+    function startEditMarker(id) {
+        const m = customMarkers.find(x => x.id === id);
+        if(!m) return;
+        editingId = id;
+        pickedResult = null;                     // 새 검색을 하지 않으면 기존 위치 유지
+        pickedColor = m.color;
+        pickedShape = m.shape;
+        openLocModal();
+        document.getElementById('loc-name').value = m.name;
+        document.getElementById('loc-label').value = m.label;
+        document.getElementById('addr-input').value = '';
+        document.getElementById('search-results').innerHTML =
+            '<div style="padding:10px; font-size:0.75rem; color:#8e44ad;">✏️ 위치를 옮기려면 주소를 다시 검색해 선택하세요.<br>검색하지 않으면 <b>기존 위치가 유지</b>됩니다.</div>';
+        updateEditUI();
+        map.setView([m.lat, m.lng], 16);
+    }
+
+    function cancelEditState() {
+        if(editingId === null) { updateEditUI(); return; }
+        editingId = null;
+        document.getElementById('loc-name').value = '';
+        document.getElementById('loc-label').value = '';
+        updateEditUI();
+    }
+
+    function updateEditUI() {
+        const btn = document.getElementById('add-loc-btn');
+        const banner = document.getElementById('edit-banner');
+        if(editingId) {
+            const m = customMarkers.find(x => x.id === editingId);
+            btn.textContent = '✅ 수정 완료';
+            banner.style.display = 'flex';
+            document.getElementById('edit-banner-name').textContent = m ? m.name : '';
+        } else {
+            btn.textContent = '➕ 지도에 추가';
+            banner.style.display = 'none';
+        }
+    }
+
+    loadCustomMarkers();
+    renderCustomList();
+    // ==================== 세이브 / 로드 (v68) ====================
+    // 세이브 파일(.json) 하나에 [파싱된 용수 데이터 + 점검상태 + 선택 담당자 + 커스텀 위치]를 모두 담습니다.
+    // → 원본 엑셀 없이 이 파일만 옮기면 폰/태블릿/다른 PC에서 동일하게 복원됩니다.
+
+    function buildSaveState() {
+        if(loadedRows.length === 0) { alert("저장할 작업이 없습니다. 엑셀 파일을 먼저 로드하세요."); return null; }
+        let title = prompt("세이브 제목을 입력하세요.", currentTitle || "소방용수점검");
+        if(title === null) return null;
+        title = title.trim() || "소방용수점검";
+        currentTitle = title;
+
+        const sel = Array.from(document.querySelectorAll('.mgr-check:checked')).map(c => c.value);
+        const state = {
+            app: "소방용수통합관제", ver: 69,
+            title: title, savedAt: new Date().toISOString(), sourceFile: currentFileName,
+            selectedManagers: sel,
+            rows: loadedRows.map(({ marker, mgrColor, ...rest }) => rest),
+            customMarkers: customMarkers
+        };
+        const today = new Date().toISOString().slice(2,10).replace(/-/g,'');
+        const safeTitle = title.replace(/[\\/:*?"<>|]/g, '_');
+        return { json: JSON.stringify(state), fileName: `${safeTitle}_${today}.json`, title: title };
+    }
+
+    function downloadJson(json, fileName) {
+        const blob = new Blob([json], { type: "application/json" });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = fileName;
+        link.click();
+    }
+
+    function saveWork() {
+        const s = buildSaveState();
+        if(!s) return;
+        downloadJson(s.json, s.fileName);
+        alert(`세이브 파일이 저장되었습니다.\n[${s.fileName}]\n\n이 파일을 다른 기기로 옮긴 뒤, 앱에서 드래그하면 이어서 작업할 수 있습니다.`);
+    }
+
+    // 📧 세이브 메일 전송
+    //  - 스마트폰/태블릿: 공유 시트가 열리고, 이메일 앱을 고르면 세이브 파일이 자동 첨부됩니다.
+    //  - PC(공유 미지원): 파일을 다운로드한 뒤 메일 작성창을 열어줍니다. (첨부는 수동)
+    async function sendSaveByMail() {
+        const s = buildSaveState();
+        if(!s) return;
+        const file = new File([s.json], s.fileName, { type: "application/json" });
+
+        if(navigator.canShare && navigator.canShare({ files: [file] })) {
+            try {
+                await navigator.share({ files: [file], title: s.fileName, text: `소방용수 세이브 - ${s.title}` });
+                return;
+            } catch(e) {
+                if(e && e.name === 'AbortError') return;   // 사용자가 공유 취소
+                // 그 외 실패 시 아래 PC 방식으로 폴백
+            }
+        }
+
+        downloadJson(s.json, s.fileName);
+        let addr = '';
+        try { addr = localStorage.getItem('fw_mail_addr') || ''; } catch(e) {}
+        addr = prompt("받는 사람 메일 주소 (공직자통합메일)\n\n※ 이 기기는 파일 공유 기능이 없어 세이브 파일을 먼저 다운로드했습니다.\n메일 작성창이 열리면 방금 받은 파일을 첨부해서 보내세요.", addr);
+        if(addr === null) return;
+        addr = addr.trim();
+        try { localStorage.setItem('fw_mail_addr', addr); } catch(e) {}
+        if(addr) location.href = `mailto:${addr}?subject=${encodeURIComponent('[소방용수 세이브] ' + s.fileName)}&body=${encodeURIComponent('소방용수 앱 세이브 파일을 첨부하여 전송합니다. (' + s.fileName + ')')}`;
+    }
+
+    async function loadSaveFile(file) {
+        document.getElementById('loading-msg').innerText = "세이브 불러오는 중...";
+        document.getElementById('loading').style.display = 'flex';
+        try {
+            const s = JSON.parse(await file.text());
+            if(!s || !Array.isArray(s.rows) || s.rows.length === 0) throw new Error("세이브 파일 형식이 아닙니다.");
+
+            // 1) 용수 데이터 + 점검상태 복원
+            loadedRows = s.rows.map(r => ({ ...r, status: r.status || '미점검', mgrColor: '#333', marker: null }));
+            currentFileName = s.sourceFile || '';
+            currentTitle = s.title || '';
+
+            // 2) 커스텀 위치 복원 (세이브 내용으로 교체)
+            Object.values(customLayerMap).forEach(m => map.removeLayer(m));
+            customLayerMap = {};
+            customMarkers = Array.isArray(s.customMarkers) ? s.customMarkers : [];
+            customMarkers.forEach(drawCustomMarker);
+            saveCustomMarkers();
+            renderCustomList();
+
+            // 3) 담당자 선택 복원
+            buildManagerList();
+            const sel = (s.selectedManagers || []).filter(n =>
+                Array.from(document.querySelectorAll('.mgr-check')).some(cb => cb.value === n));
+            document.querySelectorAll('.mgr-check').forEach(cb => { cb.checked = sel.includes(cb.value); });
+
+            const when = s.savedAt ? s.savedAt.slice(0,10) : '';
+            document.getElementById('file-status').innerHTML =
+                `<span style="color:#8e44ad;">🗂️ ${s.title || '세이브'}</span><br><span style="font-size:0.7rem; color:#7f8c8d;">${when} 저장 · ${loadedRows.length}건</span>`;
+
+            // 4) 지도/목록 표출
+            if(sel.length > 0) {
+                const targets = sel.slice(0, 3).map((n, i) => ({ name: n, color: ACTIVE_COLORS[i] || '#333' }));
+                setTimeout(() => map.invalidateSize(), 300);
+                renderMapAndTable(targets);
+            } else {
+                document.getElementById('manager-overlay').style.display = 'flex';
+            }
+        } catch(err) {
+            alert("세이브 파일을 읽는 중 오류가 발생했습니다.\n" + err.message);
+        } finally {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('loading-msg').innerText = "처리 중...";
+        }
+    }
+</script>
+</body>
+</html>
